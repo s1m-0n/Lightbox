@@ -9,6 +9,7 @@ public protocol LightboxControllerPageDelegate: class {
 public protocol LightboxControllerDismissalDelegate: class {
 
   func lightboxControllerWillDismiss(_ controller: LightboxController)
+  func lightboxControllerDidDelete(_ index: Int)
 }
 
 public protocol LightboxControllerTouchDelegate: class {
@@ -91,10 +92,8 @@ open class LightboxController: UIViewController {
         seen = true
       }
 
-      reconfigurePagesForPreload()
-      
       pageDelegate?.lightboxController(self, didMoveToPage: currentPage)
-      
+
       if let image = pageViews[currentPage].imageView.image, dynamicBackground {
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.125) {
           self.loadDynamicBackground(image)
@@ -132,7 +131,6 @@ open class LightboxController: UIViewController {
       return pageViews.map { $0.image }
     }
     set(value) {
-      initialImages = value
       configurePages(value)
     }
   }
@@ -147,7 +145,7 @@ open class LightboxController: UIViewController {
   var pageViews = [PageView]()
   var statusBarHidden = false
 
-  fileprivate var initialImages: [LightboxImage]
+  fileprivate let initialImages: [LightboxImage]
   fileprivate let initialPage: Int
 
   // MARK: - Initializers
@@ -178,8 +176,9 @@ open class LightboxController: UIViewController {
     overlayView.addGestureRecognizer(overlayTapGestureRecognizer)
 
     configurePages(initialImages)
+    currentPage = initialPage
 
-    goTo(initialPage, animated: false)
+    goTo(currentPage, animated: false)
   }
 
   open override func viewDidAppear(_ animated: Bool) {
@@ -231,35 +230,16 @@ open class LightboxController: UIViewController {
   func configurePages(_ images: [LightboxImage]) {
     pageViews.forEach { $0.removeFromSuperview() }
     pageViews = []
-    
-    let preloadIndicies = calculatePreloadIndicies()
-    
-    for i in 0..<images.count {
-      let pageView = PageView(image: preloadIndicies.contains(i) ? images[i] : LightboxImageStub())
+
+    for image in images {
+      let pageView = PageView(image: image)
       pageView.pageViewDelegate = self
-      
+
       scrollView.addSubview(pageView)
       pageViews.append(pageView)
     }
-    
+
     configureLayout(view.bounds.size)
-  }
-  
-  func reconfigurePagesForPreload() {
-    let preloadIndicies = calculatePreloadIndicies()
-    
-    for i in 0..<initialImages.count {
-      let pageView = pageViews[i]
-      if preloadIndicies.contains(i) {
-        if type(of: pageView.image) == LightboxImageStub.self {
-          pageView.update(with: initialImages[i])
-        }
-      } else {
-        if type(of: pageView.image) != LightboxImageStub.self {
-          pageView.update(with: LightboxImageStub())
-        }
-      }
-    }
   }
 
   // MARK: - Pagination
@@ -333,23 +313,6 @@ open class LightboxController: UIViewController {
       self.footerView.alpha = alpha
       pageView?.playButton.alpha = alpha
     }, completion: nil)
-  }
-  
-  // MARK: - Helper functions
-  
-  func calculatePreloadIndicies () -> [Int] {
-    var preloadIndicies: [Int] = []
-    let preload = LightboxConfig.preload
-    if preload > 0 {
-      let lb = max(0, currentPage - preload)
-      let rb = min(initialImages.count, currentPage + preload)
-      for i in lb..<rb {
-        preloadIndicies.append(i)
-      }
-    } else {
-      preloadIndicies = [Int](0..<initialImages.count)
-    }
-    return preloadIndicies
   }
 }
 
@@ -425,6 +388,7 @@ extension LightboxController: HeaderViewDelegate {
 
     guard numberOfPages != 1 else {
       pageViews.removeAll()
+      self.dismissalDelegate?.lightboxControllerDidDelete(self.currentPage)
       self.headerView(headerView, didPressCloseButton: headerView.closeButton)
       return
     }
@@ -443,6 +407,7 @@ extension LightboxController: HeaderViewDelegate {
     DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.5) {
       self.configureLayout(self.view.bounds.size)
       self.currentPage = Int(self.scrollView.contentOffset.x / self.view.bounds.width)
+      self.dismissalDelegate?.lightboxControllerDidDelete(self.currentPage)
       deleteButton.isEnabled = true
     }
   }
